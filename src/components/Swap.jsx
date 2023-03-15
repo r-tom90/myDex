@@ -9,8 +9,9 @@ import {
   SettingOutlined,
 } from "@ant-design/icons";
 import axios from "axios";
+import { useSendTransaction, useWaitForTransaction } from "wagmi";
 
-function Swap() {
+function Swap({ address, isConnected }) {
   const [slippage, setSlippage] = useState(2.5);
   const [tokenOneAmount, setTokenOneAmount] = useState(null);
   const [tokenTwoAmount, setTokenTwoAmount] = useState(null);
@@ -20,10 +21,31 @@ function Swap() {
   const [isOpen, setIsOpen] = useState(false);
   const [changeToken, setChangeToken] = useState(1);
   const [prices, setPrices] = useState(null);
+  const [txDetails, setTxDetails] = useState({
+    to: null,
+    data: null,
+    value: null,
+  });
+
+  const { data, sendTransaction } = useSendTransaction({
+    // Send transactions with these details in the format below
+    request: {
+      from: address,
+      to: String(txDetails.to),
+      data: String(txDetails.data),
+      value: String(txDetails.value),
+    },
+  });
 
   useEffect(() => {
     fetchPrices(tokenList[0].address, tokenList[1].address);
   }, []);
+
+  useEffect(() => {
+    if (txDetails.to && isConnected) {
+      sendTransaction();
+    }
+  }, [txDetails]);
 
   const handleSlippageChange = (e) => {
     setSlippage(e.target.value);
@@ -81,6 +103,40 @@ function Swap() {
 
     // console.log(response.data);
     setPrices(response.data);
+  };
+
+  const fetchDexSwap = async () => {
+    // Check the allowances of tokens that can be swapped through 1Inch api (https://docs.1inch.io/docs/aggregation-protocol/api/swagger/)
+    const allowance = await axios.get(
+      `https://api.1inch.io/v5.0/1/approve/allowance?tokenAddress=${tokenOne.address}&walletAddress=${address}`
+    );
+
+    // Checks what the allowance is, if not approved, it will ask to approve transaction
+    if (allowance.data.allowance === "0") {
+      const approve = await axios.get(
+        `https://api.1inch.io/v5.0/1/approve/transaction?tokenAddress=${tokenOne.address}`
+      );
+
+      setTxDetails(approve.data);
+      console.log("not approved");
+      return;
+    }
+
+    // console.log("make swap");
+    const tx = await axios.get(
+      // check 1:19:00 and 1:24:00 for explanation of padEnd, challenge to allow for decimal swaps
+      `https://api.1inch.io/v5.0/1/swap?fromTokenAddress=${
+        tokenOne.address
+      }&toTokenAddress=${tokenTwo.address}&amount=${tokenOneAmount.padEnd(
+        tokenOne.decimals + tokenOneAmount.length,
+        "0"
+      )}&fromAddress=${address}&slippage=${slippage}`
+    );
+
+    let decimals = Number(`1E${tokenTwo.decimals}`);
+    setTokenTwoAmount((Number(tx.data.toTokenAmount) / decimals).toFixed(2));
+
+    setTxDetails(tx.data.tx);
   };
 
   const settings = (
@@ -159,7 +215,11 @@ function Swap() {
             <DownOutlined />
           </div>
         </div>
-        <div className="swapButton" disabled={!tokenOneAmount}>
+        <div
+          className="swapButton"
+          disabled={!tokenOneAmount || !isConnected}
+          onClick={fetchDexSwap}
+        >
           Swap
         </div>
       </div>
