@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import tokenList from "../tokenList.json";
 
@@ -8,6 +8,7 @@ import {
   DownOutlined,
   SettingOutlined,
 } from "@ant-design/icons";
+import axios from "axios";
 
 function Swap() {
   const [slippage, setSlippage] = useState(2.5);
@@ -18,20 +19,38 @@ function Swap() {
   const [tokenTwo, setTokenTwo] = useState(tokenList[1]);
   const [isOpen, setIsOpen] = useState(false);
   const [changeToken, setChangeToken] = useState(1);
+  const [prices, setPrices] = useState(null);
+
+  useEffect(() => {
+    fetchPrices(tokenList[0].address, tokenList[1].address);
+  }, []);
 
   const handleSlippageChange = (e) => {
     setSlippage(e.target.value);
   };
 
+  // Changes ratio of input2
   const changeAmount = (e) => {
     setTokenOneAmount(e.target.value);
+    if (e.target.value && prices) {
+      // .toFixed(2) is fixing it to 2 decimal points
+      setTokenTwoAmount((e.target.value * prices.ratio).toFixed(8));
+    } else {
+      setTokenTwoAmount(null);
+    }
   };
 
   const switchTokens = () => {
+    setPrices(null);
+    setTokenOneAmount(null);
+    setTokenTwoAmount(null);
+
     const one = tokenOne;
     const two = tokenTwo;
     setTokenOne(two);
     setTokenTwo(one);
+
+    fetchPrices(two.address, one.address);
   };
 
   const openModal = (asset) => {
@@ -40,9 +59,28 @@ function Swap() {
   };
 
   const modifyToken = (i) => {
-    changeToken === 1 ? setTokenOne(tokenList[i]) : setTokenTwo(tokenList[i]);
+    setPrices(null);
+    setTokenOneAmount(null);
+    setTokenTwoAmount(null);
+
+    if (changeToken === 1) {
+      setTokenOne(tokenList[i]);
+      fetchPrices(tokenList[i].address, tokenTwo.address);
+    } else {
+      setTokenTwo(tokenList[i]);
+      fetchPrices(tokenOne.address, tokenList[i].address);
+    }
     // closes modal after selected
     setIsOpen(false);
+  };
+
+  const fetchPrices = async (one, two) => {
+    const response = await axios.get(`http://localhost:3001/tokenPrice`, {
+      params: { addressOne: one, addressTwo: two },
+    });
+
+    // console.log(response.data);
+    setPrices(response.data);
   };
 
   const settings = (
@@ -85,9 +123,9 @@ function Swap() {
           })}
         </div>
       </Modal>
-      <div className="flex min-h-[300px] w-[400px] flex-col items-start justify-around rounded-2xl border-[2px] border-[#21273a] bg-[#0e111b] px-[30px] py-3">
+      <div className="flex min-h-[300px] w-[400px] flex-col items-start justify-between rounded-2xl border-[2px] border-[#21273a] bg-[#0e111b] px-[30px] py-0">
         <div className="flex w-[98%] items-center justify-between">
-          <h4>Swap</h4>
+          <h4 className="my-5 font-bold">Swap</h4>
           <Popover
             content={settings}
             title="Settings"
@@ -98,10 +136,12 @@ function Swap() {
           </Popover>
         </div>
         <div className="inputs">
+          {/* TODO: Ensure no negative numbers to be selected */}
           <Input
             placeholder="0"
             value={tokenOneAmount}
             onChange={changeAmount}
+            disabled={!prices}
             // TODO: type="number" remove arrow pointers
           />
           <Input placeholder="0" value={tokenTwoAmount} disabled={true} />
